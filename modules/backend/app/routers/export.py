@@ -10,6 +10,33 @@ from datetime import datetime
 
 router = APIRouter(tags=["報表匯出模組"])
 
+# openpyxl 看到 "=" 開頭的字串就把儲存格寫成真的公式（<f> 元素），
+# 不是文字。實測 openpyxl 3.1.5：
+#
+#     "=cmd|'/c calc'!A1"  →  <c r="A2"><f>cmd|'/c calc'!A1</f><v /></c>
+#
+# 承辦人員開這個檔案時 Excel 會去執行它（DDE）。而 url 欄位是從
+# /api/crawler/report/、/api/nlp/report/、/api/ai_result/report/ 寫進來的，
+# 那三支只驗長度不驗 scheme（只有 /api/scan_target/ 的 FrontendScanRequest
+# 會驗 http/https），所以 "=" 開頭的值進得了資料庫。
+#
+# 那三支要 internal token，外人打不到——但這個檔案是整套系統裡唯一一條
+# 「資料離開系統邊界」的路徑，而且是拿去給人開的。token 存在五個容器裡，
+# 任何一個被打下來就到得了這裡，理由跟 SEC-16 為什麼要驗欄位長度是同一個。
+#
+# 不用「前面加一撇」那種常見寫法：那會把 '=... 真的寫進值裡，網址就不是
+# 當時抓到的那個網址了。改成明確標記型別為文字，並套上 quotePrefix——
+# 那正是 Excel 自己用來表示「像公式的文字」的方式，值一個位元都不會動。
+# 順帶把 #REF! 這類錯誤碼（openpyxl 會標成 data_type "e"）一起收掉。
+def _disarm_formula_cells(ws):
+    """把被推斷成公式／錯誤碼的儲存格改回文字，值不變。"""
+    for row in ws.iter_rows():
+        for cell in row:
+            if cell.data_type in ("f", "e"):
+                cell.data_type = "s"
+                cell.quotePrefix = True
+
+
 @router.get("/api/export/ai_results_excel/", summary="匯出 AI 分析結果資料表")
 def export_raw_results_to_excel(
     start_date: Optional[str] = Query(None, max_length=32, description="開始日期 (YYYY-MM-DD)"),
@@ -75,6 +102,9 @@ def export_raw_results_to_excel(
     
     with pd.ExcelWriter(stream, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='AI分析總表')
+        # 要在 with 區塊「之內」處理：檔案是離開這個區塊時才序列化的，
+        # 在外面改已經來不及了。
+        _disarm_formula_cells(writer.sheets['AI分析總表'])
     
     stream.seek(0)
 

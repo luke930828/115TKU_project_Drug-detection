@@ -1,4 +1,6 @@
 """XSS 防護與輸入處理。"""
+import io
+
 import pytest
 import requests
 from conftest import BACKEND, known_vuln
@@ -169,3 +171,58 @@ def test_search_escapes_like_wildcards(admin):
             f"q={wildcard!r} 回傳 {got} 筆／共 {all_count} 筆——"
             f"萬用字元沒有跳脫，被當成「匹配任何字元」了"
         )
+
+
+# ============================================================
+# SEC-23　匯出的 Excel 不能包含公式
+# ============================================================
+# 跟上面的 XSS 是同一課：防護要在輸出端。差別只在輸出端從瀏覽器換成 Excel。
+FORMULA_URLS = [
+    "=cmd|'/c calc'!A1",                                    # DDE，開檔即執行
+    '=HYPERLINK("http://attacker.invalid/leak","風險報表")',   # 誘導點擊外連
+]
+
+
+@known_vuln("SEC-23")
+def test_export_does_not_produce_formula_cells(admin, internal):
+    """
+    匯出的 xlsx 裡不能有任何公式儲存格，而且值要跟資料庫裡的一模一樣。
+
+    xlsx 不是 CSV：openpyxl 只有對 "=" 開頭的字串會推斷成公式
+    （實測 @ + - 開頭都寫成文字），但推斷出來的是真的 <f> 元素，
+    Excel 開檔時會執行。
+
+    這裡刻意用 internal 打回報端點——那三支只驗長度不驗 scheme，是 "=" 開頭
+    的值唯一進得了 ai_analysis_results.url 的路徑。用 admin 的 /api/scan_target/
+    會停在 422（FrontendScanRequest 有擋 scheme），看起來過了其實什麼都沒驗到。
+    """
+    from openpyxl import load_workbook
+
+    for url in FORMULA_URLS:
+        r = internal.post("/api/nlp/report/", json={
+            "url": url, "risk_score": 1, "nlp_keywords": []})
+        # 這一步失敗的話，下面「找不到公式」會變成假通過，所以要先擋住
+        assert r.status_code == 200, (
+            f"測試資料沒進去，後面的斷言就沒有意義了：{r.status_code} {r.text[:200]}"
+        )
+
+    r = admin.get("/api/export/ai_results_excel/")
+    assert r.status_code == 200, f"匯出失敗：{r.status_code} {r.text[:200]}"
+
+    ws = load_workbook(io.BytesIO(r.content))["AI分析總表"]
+    cells = [c for row in ws.iter_rows() for c in row]
+
+    # 先確認 payload 真的在檔案裡。少了這一步，只要匯出剛好沒撈到這幾筆，
+    # 這個測試就會在漏洞還在的情況下顯示通過。
+    values = {c.value for c in cells}
+    missing = [u for u in FORMULA_URLS if u not in values]
+    assert not missing, (
+        f"這些網址沒有出現在匯出檔裡，無法驗證：{missing}\n"
+        f"　　值被改動過也會落到這裡——修法不該動到欄位內容（那是蒐證資料）。"
+    )
+
+    formulas = [(c.coordinate, c.value) for c in cells if c.data_type in ("f", "e")]
+    assert not formulas, (
+        f"匯出的 Excel 裡有 {len(formulas)} 個公式／錯誤碼儲存格，"
+        f"承辦人員開檔時會被執行：{formulas[:3]}"
+    )

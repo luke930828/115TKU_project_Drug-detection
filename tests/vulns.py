@@ -196,6 +196,30 @@ VULNS = {
         fix="在 auth/scan/export 補上 log_audit_action；查詢端點加分頁與時間區間篩選。",
     ),
 
+    "SEC-23": dict(
+        severity=MEDIUM,
+        title="Excel 匯出把 = 開頭的欄位寫成真的公式",
+        where="routers/export.py:103-107, schemas.py:103,153,186",
+        impact="openpyxl 對 \"=\" 開頭的字串不是存成文字，而是存成公式元素。"
+               "實測 openpyxl 3.1.5，網址 \"=cmd|'/c calc'!A1\" 匯出後在 sheet1.xml 裡是 "
+               "<c r=\"A2\"><f>cmd|'/c calc'!A1</f><v /></c>——承辦人員開檔時 Excel "
+               "會當成 DDE 去執行。\n\n"
+               "url 進得來是因為三支回報端點（crawler/nlp/ai_result）只驗長度不驗 scheme，"
+               "只有 /api/scan_target/ 的 FrontendScanRequest 會擋非 http/https。"
+               "\n\n"
+               "那三支要 internal token，所以外人打不到，是縱深防禦而不是直接可利用的洞——"
+               "但這個 xlsx 是整套系統唯一一條資料離開系統邊界的路徑，而且是拿去給人開的。"
+               "token 存在五個容器裡，任何一個被打下來就到得了這裡，理由跟 SEC-16 "
+               "為什麼即使有 token 仍要驗欄位長度完全一樣。"
+               "\n\n"
+               "註：xlsx 跟 CSV 不同，只有 \"=\" 開頭會成立。實測 @ + - 開頭都寫成文字。",
+        fix="匯出時把被推斷成公式的儲存格改回文字。不要用「前面加一撇」那種常見寫法——"
+            "那會把 '=... 真的寫進值裡，網址就不再是當時抓到的那一個，證據就被改動了。"
+            "改成設 data_type=\"s\" 並套 quotePrefix（Excel 自己表示「像公式的文字」"
+            "就是用這個），值一個位元都不動。順帶收掉 #REF! 這類會被標成 data_type "
+            "\"e\" 的錯誤碼。",
+    ),
+
     # ---------------- Low ----------------
     "SEC-20": dict(
         severity=LOW,
