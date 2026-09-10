@@ -22,3 +22,8 @@ modules/*/app/models/*.pth
 
 .DS_Store
 *.log
+# Ultralytics 會把預訓練基礎權重自動下載到工作目錄（cwd），常常掉在 repo 根目錄
+# 例如 yolo11n.pt / yolo26n.pt。這些不是我們訓練的模型，不要進 git。
+/*.pt
+/*.onnx
+/*.pth
