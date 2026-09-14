@@ -282,13 +282,16 @@ export function AIDetection({ onBack, onDetectionsLoaded }: Props) {
     callbackRef.current = onDetectionsLoaded;
   }, [onDetectionsLoaded]);
 
-  const loadDetections = useCallback(async (page: number) => {
+  const loadDetections = useCallback(async (page: number, level: string) => {
     try {
       const query = new URLSearchParams({
         page: String(page),
         limit: String(CRAWLER_LIMIT),
         group: "domain",
       });
+      // 等級篩選交給後端，在分頁前就篩好。前端自己篩的話，
+      // 清單依嚴重度排序，選「低風險」時前面好幾頁會是一片空白。
+      if (level !== "all") query.set("level", level);
       const response = await authFetch(`/api/crawler/automated_24h_list/?${query}`, {
         headers: { Accept: "application/json" },
       });
@@ -346,7 +349,7 @@ export function AIDetection({ onBack, onDetectionsLoaded }: Props) {
     } catch (requestError) {
       const message =
         requestError instanceof Error ? requestError.message : "未知錯誤";
-      setError(`無法取得 24小時AI自動識別資料：${message}`);
+      setError(`無法取得 24小時AI自動辨識資料：${message}`);
     } finally {
       setLoading(false);
     }
@@ -392,17 +395,24 @@ export function AIDetection({ onBack, onDetectionsLoaded }: Props) {
 
   useEffect(() => {
     setLoading(true);
-    loadDetections(currentPage);
+    loadDetections(currentPage, filterRisk);
     const timer = window.setInterval(
-      () => loadDetections(currentPage),
+      () => loadDetections(currentPage, filterRisk),
       REFRESH_INTERVAL_MS
     );
     return () => window.clearInterval(timer);
-  }, [currentPage, loadDetections]);
+  }, [currentPage, filterRisk, loadDetections]);
 
   const handleRefresh = async () => {
     setLoading(true);
-    await loadDetections(currentPage);
+    await loadDetections(currentPage, filterRisk);
+  };
+
+  const changeFilter = (level: string) => {
+    setSelected(null);
+    setExpanded(null);
+    setCurrentPage(1);
+    setFilterRisk(level);
   };
 
   const changePage = (page: number) => {
@@ -412,14 +422,8 @@ export function AIDetection({ onBack, onDetectionsLoaded }: Props) {
     setCurrentPage(page);
   };
 
-  // 「覆核過」不是等級，單獨判斷：底下有任何一頁被確認過就算。
-  // 用 riskLevel === "verified" 也行，但那依賴後端把 worst 算成 -1，藏太深。
-  const filtered =
-    filterRisk === "all"
-      ? data
-      : filterRisk === "verified"
-        ? data.filter((item) => item.verifiedCount > 0)
-        : data.filter((item) => item.riskLevel === filterRisk);
+  // 篩選已經在後端做完，這裡拿到的就是這一頁該顯示的網域
+  const filtered = data;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#2B4C7E] to-[#1a2f4f] p-6">
@@ -428,7 +432,7 @@ export function AIDetection({ onBack, onDetectionsLoaded }: Props) {
           <h1 className="text-white text-4xl font-bold mb-2">
             多模態毒品交易防制系統
           </h1>
-          <p className="text-white/80 text-lg">24小時AI自動識別－爬蟲判讀結果</p>
+          <p className="text-white/80 text-lg">24小時AI自動辨識－爬蟲判讀結果</p>
         </div>
 
         <div className="bg-white rounded-3xl p-8 shadow-2xl">
@@ -474,7 +478,7 @@ export function AIDetection({ onBack, onDetectionsLoaded }: Props) {
           <div className="mb-6">
             <select
               value={filterRisk}
-              onChange={(event) => setFilterRisk(event.target.value)}
+              onChange={(event) => changeFilter(event.target.value)}
               className="border-2 border-gray-200 rounded-lg p-2 focus:border-[#2B4C7E]"
             >
               <option value="all">全部</option>
@@ -487,7 +491,7 @@ export function AIDetection({ onBack, onDetectionsLoaded }: Props) {
           </div>
 
           {loading ? (
-            <div className="py-16 text-center text-gray-500">正在取得爬蟲識別資料…</div>
+            <div className="py-16 text-center text-gray-500">正在取得爬蟲辨識資料…</div>
           ) : filtered.length === 0 ? (
             <div className="py-16 text-center border-2 border-dashed rounded-xl text-gray-400">
               目前沒有符合條件的可疑網站

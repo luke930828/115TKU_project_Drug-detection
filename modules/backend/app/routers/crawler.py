@@ -18,7 +18,7 @@ import traceback
 
 router = APIRouter(tags=["自動爬蟲管理"])
 
-#  模組三：查詢已識別網站
+#  模組三：查詢已辨識網站
 @router.get("/api/crawler/report/", summary="獲取前端專用 AI 分析黑名單報表")
 def get_frontend_report(
     current_user: database.User = Depends(verify_admin),
@@ -60,7 +60,7 @@ def get_frontend_report(
 
     return {
         "status": "success",
-        "message": "成功抓取最新 AI 多模態識別資料庫",
+        "message": "成功抓取最新 AI 多模態辨識資料庫",
         "total_count": total,
         "pagination": {
             "total_count": total,
@@ -475,6 +475,8 @@ def _severity_expr():
     )
 
 
+_LEVEL_TO_SEVERITY = {"verified": -1, "critical": 0, "high": 1, "medium": 2, "low": 3}
+
 _SEVERITY_TO_LEVEL = {
     -1: "已人工確認",
     0: "極高風險",
@@ -514,6 +516,9 @@ def get_automated_24h_results(
     domain: Optional[str] = Query(
         None, max_length=253,
         description="只回傳這個網域底下的網頁（展開某個網域時用）"),
+    level: Optional[str] = Query(
+        None, pattern="^(verified|critical|high|medium|low)$",
+        description="group=domain 時只回傳最嚴重等級為此的網域"),
 ):
     
     base_query = db.query(database.AIAnalysisResult).filter(
@@ -584,7 +589,15 @@ def get_automated_24h_results(
         d_med = sev_counts.get(1, 0) + sev_counts.get(2, 0)
         d_low = sev_counts.get(3, 0)
 
-        rows = (grouped
+        # 等級篩選要在分頁之前做。以前是前端拿到這一頁再自己篩，
+        # 但清單依嚴重度排序，選「低風險」時前面好幾頁全是極高／高，篩完一片空白。
+        # 上面的統計刻意用篩選前的 grouped，卡片數字不隨篩選變動。
+        listed = grouped
+        if level:
+            listed = grouped.having(func.min(sev) == _LEVEL_TO_SEVERITY[level])
+        listed_total = listed.count() if level else domain_total
+
+        rows = (listed
                 .order_by(func.min(sev),
                           func.max(database.AIAnalysisResult.risk_score).desc(),
                           # 文字同分才看影像，跟平鋪清單用同一套順位
@@ -615,7 +628,7 @@ def get_automated_24h_results(
         return {
             "status": "success",
             "message": "成功獲取 24 小時自動爬蟲清單（以網域分組）",
-            "total_count": domain_total,
+            "total_count": listed_total,
             "stats": {
                 "total": domain_total,
                 "high": d_high,
@@ -623,10 +636,10 @@ def get_automated_24h_results(
                 "low": d_low,
             },
             "pagination": {
-                "total_count": domain_total,
+                "total_count": listed_total,
                 "current_page": page,
                 "limit": limit,
-                "total_pages": (domain_total + limit - 1) // limit if limit > 0 else 0,
+                "total_pages": (listed_total + limit - 1) // limit if limit > 0 else 0,
             },
             "data": domain_data,
         }

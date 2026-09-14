@@ -557,7 +557,7 @@ export function URLAnalysis({ onBack }: URLAnalysisProps) {
         </button>
 
         <h1 className="text-xl font-bold mb-2 text-[#2B4C7E] tracking-wide">
-          核心通道：網址多模態檢測
+          網址多模態檢測
         </h1>
 
         <p className="text-xs text-gray-500 mb-6">
@@ -678,6 +678,8 @@ export function URLAnalysis({ onBack }: URLAnalysisProps) {
               </h3>
             </div>
 
+            {/* 兩個分數各一格、同樣大小。等級是二維判斷，只把一個放大的話
+                看起來像只有文字在算分。 */}
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-[#1e3a63] p-4 rounded-lg flex flex-col justify-center items-center">
                 <span className="text-gray-400 text-xs mb-1">
@@ -685,25 +687,34 @@ export function URLAnalysis({ onBack }: URLAnalysisProps) {
                 </span>
 
                 <span className="text-3xl font-black text-white">
-                  {analysisData.nlp_score ?? analysisData.risk_score}
-                </span>
-                <span className="text-gray-400 text-xs mt-1">
-                  影像 {analysisData.yolo_score ?? 0}
+                  {analysisData.nlp_score ?? analysisData.risk_score ?? 0}
                 </span>
               </div>
 
               <div className="bg-[#1e3a63] p-4 rounded-lg flex flex-col justify-center items-center">
+                <span className="text-gray-400 text-xs mb-1">
+                  影像分數
+                </span>
+
+                <span className="text-3xl font-black text-white">
+                  {analysisData.yolo_score ?? 0}
+                </span>
+              </div>
+
+              <div className="col-span-2 bg-[#1e3a63] p-4 rounded-lg flex flex-col justify-center items-center">
                 <span className="text-gray-400 text-xs mb-1">
                   風險判定等級
                 </span>
 
                 <span
                   className={`text-xl font-bold ${
-                    analysisData.risk_level === "極高風險"
+                    (analysisData.risk_level || "").startsWith("極高")
                       ? "text-red-500"
-                      : analysisData.risk_level.startsWith("中風險")
-                        ? "text-amber-500"
-                        : "text-green-400"
+                      : (analysisData.risk_level || "").startsWith("高風險")
+                        ? "text-orange-400"
+                        : (analysisData.risk_level || "").startsWith("中風險")
+                          ? "text-amber-500"
+                          : "text-green-400"
                   }`}
                 >
                   {analysisData.risk_level}

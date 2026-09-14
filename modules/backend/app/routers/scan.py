@@ -1,4 +1,4 @@
-#  模組二：輸入網址識別 
+#  模組二：輸入網址辨識 
 import os
 import time
 import traceback
@@ -9,15 +9,29 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 import database
+import image_store
 from dependencies import get_db, get_current_user, log_audit_action
 from utils import is_whitelisted as is_whitelisted_domain
 from schemas import FrontendScanRequest
 
-router = APIRouter(tags=["網址即時識別模組"])
+router = APIRouter(tags=["網址即時辨識模組"])
 
 # 一筆未完成的紀錄要放置多久，才判定它是卡住、值得重派一次爬蟲。
 # 一頁的正常流程（爬蟲 → NLP → YOLO 逐張推論）大約一到兩分鐘，抓五分鐘留足餘裕。
 RETRY_AFTER_SECONDS = 300
+
+
+def _record_for_frontend(record):
+    """歷史紀錄轉成前端要的格式。
+
+    代表圖已經搬到檔案系統，base64 欄位是空的。以前這裡直接回傳資料庫那一列，
+    前端讀 representative_image_base64 永遠拿到 null，人工查詢就看不到圖。
+    """
+    data = {c.name: getattr(record, c.name) for c in record.__table__.columns}
+    if record.representative_image_path:
+        data["representative_image_base64"] = image_store.load_base64(
+            record.representative_image_path)
+    return data
 
 
 @router.post("/api/scan_target/", summary="即時掃描單一網址（具備未完成任務自動修復機制）")
@@ -53,7 +67,7 @@ def scan_target_url(request_data: FrontendScanRequest, db: Session = Depends(get
                 "status": "success",
                 "source": "history",
                 "message": "偵測到完整的歷史展示紀錄，直接回傳 AI 分析結果。",
-                "data": existing_record
+                "data": _record_for_frontend(existing_record)
             }
         else:
             # 未完成的紀錄要不要重派，取決於它卡多久了。
@@ -101,7 +115,7 @@ def scan_target_url(request_data: FrontendScanRequest, db: Session = Depends(get
         }
     except Exception as e:
         db.rollback()
-        print(f"即時識別處理失敗（{target_url}）：{e!r}")
+        print(f"即時辨識處理失敗（{target_url}）：{e!r}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail="即時識別處理失敗，請聯繫系統管理員")
+        raise HTTPException(status_code=500, detail="即時辨識處理失敗，請聯繫系統管理員")
 

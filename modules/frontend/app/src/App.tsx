@@ -192,8 +192,8 @@ export default function App() {
             e.currentTarget.style.boxShadow = "0 8px 20px rgba(0,0,0,0.15)";
           }}
         >
-          <div style={titleStyle}>24小時AI自動識別</div>
-          <p style={descStyle}>使用AI技術自動識別可疑內容</p>
+          <div style={titleStyle}>24小時AI自動辨識</div>
+          <p style={descStyle}>使用AI技術自動辨識可疑內容</p>
         </div>
 
         <div
@@ -208,8 +208,8 @@ export default function App() {
             e.currentTarget.style.boxShadow = "0 8px 20px rgba(0,0,0,0.15)";
           }}
         >
-          <div style={titleStyle}>輸入網址識別</div>
-          <p style={descStyle}>輸入網址進行識別分析</p>
+          <div style={titleStyle}>輸入網址辨識</div>
+          <p style={descStyle}>輸入網址進行辨識分析</p>
         </div>
 
         <div
@@ -240,7 +240,7 @@ export default function App() {
             e.currentTarget.style.boxShadow = "0 8px 20px rgba(0,0,0,0.15)";
           }}
         >
-          <div style={titleStyle}>查詢已識別網站</div>
+          <div style={titleStyle}>查詢已辨識網站</div>
           <p style={descStyle}>查詢與管理已標記的可疑網站資料庫</p>
         </div>
 
