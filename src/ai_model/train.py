@@ -57,6 +57,7 @@ class TrainConfig:
     low_sample_threshold: int = 100              # 訓練集裡樣本數低於此值的類別，開訓前會被列為警示
     resume: bool = False                         # True 時接續 runs/detect/<name>/weights/last.pt 繼續跑，
                                                   # 而不是從 base_model 重新開始（optimizer 狀態、LR 排程、epoch 計數都會照舊接續）
+    deploy: bool = True                          # False 時只訓練、不覆蓋也不備份 deploy_dir 裡正在用的 best.pt（對照實驗用）
 
 
 def resolve_resume_checkpoint(config: TrainConfig) -> Path:
@@ -171,7 +172,11 @@ def print_training_summary(final_weights_path: Path, run_dir: Path, metrics, dat
 def finalize_training(model: YOLO, config: TrainConfig, metrics) -> Path:
     trainer = model.trainer
     weights_source = trainer.best if trainer.best.exists() else trainer.last
-    final_weights_path = deploy_weights(weights_source, config)
+    if config.deploy:
+        final_weights_path = deploy_weights(weights_source, config)
+    else:
+        final_weights_path = weights_source
+        print(f"🧪 [--no-deploy] 未部署，既有的 {config.deploy_dir / config.deploy_filename} 保持不動。")
     print_training_summary(final_weights_path, trainer.save_dir, metrics, config.data_yaml)
     return final_weights_path
 
@@ -254,9 +259,36 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="接續 runs/detect/<name>/weights/last.pt 繼續跑，而不是從 base_model 重新開始訓練",
     )
+    parser.add_argument("--model", help="基礎模型，例如 yolo11s.pt、yolo11m.pt（本機沒有會由 Ultralytics 自動下載）")
+    parser.add_argument("--imgsz", type=int, help="訓練解析度，例如 960（小目標如結晶可試）")
+    parser.add_argument("--batch", type=float, help="整數=固定 batch size；0~1 的小數=AutoBatch 顯存比例")
+    parser.add_argument("--workers", type=int, help="DataLoader worker 數")
+    parser.add_argument("--epochs", type=int, help="最大 epoch 數")
+    parser.add_argument("--name", help="實驗名稱，對照實驗請每次換一個，避免覆蓋 runs/detect/<name>")
+    parser.add_argument(
+        "--no-deploy",
+        action="store_true",
+        help="只訓練、不覆蓋 modules/yolo/app/models/best.pt，也不產生 best_backup_*.pt",
+    )
     return parser.parse_args()
 
 
+def build_config(args: argparse.Namespace) -> TrainConfig:
+    config = TrainConfig(resume=args.resume, deploy=not args.no_deploy)
+    if args.model:
+        config.base_model = args.model
+    if args.imgsz:
+        config.imgsz = args.imgsz
+    if args.batch is not None:
+        config.batch = int(args.batch) if args.batch >= 1 else args.batch
+    if args.workers is not None:
+        config.workers = args.workers
+    if args.epochs:
+        config.epochs = args.epochs
+    if args.name:
+        config.name = args.name
+    return config
+
+
 if __name__ == "__main__":
-    args = parse_args()
-    train_model(TrainConfig(resume=args.resume))
+    train_model(build_config(parse_args()))
